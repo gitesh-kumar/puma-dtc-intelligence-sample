@@ -6,3 +6,8 @@ __pycache__/
 .env
 puma_dtc.db
 *.zip
+*.parquet
+*.db
+.env.*
+.pytest_cache/
+databricks_export/

@@ -10,8 +10,16 @@ def build_gold():
     
     conn = sqlite3.connect(DB_PATH)
 
-    print("Loading silver data...")
-    transactions = pd.read_sql("SELECT * FROM silver_transactions", conn)
+    print("Loading silver data (clean rows only)...")
+    total_silver = pd.read_sql("SELECT COUNT(*) AS n FROM silver_transactions", conn)["n"].iloc[0]
+    transactions = pd.read_sql(
+        "SELECT * FROM silver_transactions WHERE quality_flag = 'clean'", conn
+    )
+    if transactions.empty:
+        raise SystemExit("No clean rows in silver_transactions. Check the Silver layer first.")
+    excluded = int(total_silver) - len(transactions)
+    print(f"Excluded {excluded:,} of {int(total_silver):,} Silver rows "
+          f"(flagged invalid_price or unmapped_category)")
     transactions["t_dat"] = pd.to_datetime(transactions["t_dat"])
     transactions["date_key"] = transactions["year"] * 100 + transactions["month"]
 

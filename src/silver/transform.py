@@ -110,7 +110,7 @@ def transform_silver():
     )
 
     silver_transactions["quality_flag"] = "clean"
-    silver_transactions.loc[silver_transactions["price"] <= 0, "quality_flag"] = "invalid_price"
+    silver_transactions.loc[~(silver_transactions["price_eur"] > 0), "quality_flag"] = "invalid_price"
     silver_transactions.loc[silver_transactions["puma_category"] == "Other", "quality_flag"] = "unmapped_category"
     silver_transactions["transformed_at"] = datetime.now()
 
