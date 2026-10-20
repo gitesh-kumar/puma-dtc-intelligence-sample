@@ -1,16 +1,13 @@
-"""Smoke tests for the dashboard. The app needs Python 3.12 or newer (nested quotes inside its
-f-strings) and fastapi + httpx; the tests skip themselves when those are missing."""
+"""Smoke tests for the dashboard. They need fastapi + httpx and skip themselves when those are missing."""
 import importlib.util
 import os
 import shutil
-import sys
+import sqlite3
 
 import pytest
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
-if sys.version_info < (3, 12):
-    pytest.skip("app.py needs Python 3.12 or newer", allow_module_level=True)
 
 from fastapi.testclient import TestClient
 
@@ -52,7 +49,6 @@ def test_ask_endpoint_returns_answer_sql_and_verification(client):
 
 def test_dashboard_without_a_report_table_says_the_checks_have_not_run(built_db, tmp_path, monkeypatch):
     """A database built by the old pipeline has no data_quality_report table."""
-    import sqlite3
     shutil.copy(built_db, tmp_path / "puma_dtc.db")
     conn = sqlite3.connect(tmp_path / "puma_dtc.db")
     conn.execute("DROP TABLE IF EXISTS data_quality_report")
@@ -66,3 +62,61 @@ def test_dashboard_without_a_report_table_says_the_checks_have_not_run(built_db,
     assert page.status_code == 200
     assert "Data checks have not been run yet" in page.text
     assert "src\\run_pipeline.py" in page.text
+
+
+def test_headline_names_the_division_with_the_lowest_health_score(client, built_db):
+    conn = sqlite3.connect(built_db)
+    worst = conn.execute("SELECT puma_division FROM gold_inventory_health ORDER BY inventory_health_score LIMIT 1").fetchone()[0]
+    conn.close()
+    page = client.get("/").text
+    assert f"{worst} needs attention first" in page
+    assert "on simulated stock" in page
+
+
+def test_page_states_that_it_is_a_demo_and_not_affiliated(client):
+    assert "Not affiliated with, endorsed by or connected to PUMA SE" in client.get("/").text
+
+
+def test_every_value_is_in_the_page_without_javascript(client):
+    """Charts need Chart.js from a CDN. The lists and the table views carry every number on their own."""
+    page = client.get("/").text
+    assert page.count('class="row row-health"') == 6 and page.count('class="row row-markdown"') == 6
+    assert page.count('class="table-view"') == 2
+    assert 'id="dash-data"' in page
+
+
+def test_passing_checks_are_plain_text_and_only_problems_get_chips(client):
+    page = client.get("/").text
+    assert page.count('class="pass"') == 32
+    assert "chip-critical" not in page.split('class="dq')[1].split("</details>")[0]
+
+
+def test_headline_when_nothing_needs_attention(built_db, tmp_path):
+    shutil.copy(built_db, tmp_path / "puma_dtc.db")
+    conn = sqlite3.connect(tmp_path / "puma_dtc.db")
+    conn.execute("UPDATE gold_inventory_health SET inventory_health_score = 90, health_label = 'HEALTHY'")
+    conn.commit()
+    conn.close()
+    spec = importlib.util.spec_from_file_location("dashboard_app_healthy", APP_PATH)
+    module = importlib.util.module_from_spec(spec)
+    with working_dir(tmp_path):
+        spec.loader.exec_module(module)
+        page = TestClient(module.app).get("/").text
+    assert "No division needs attention right now" in page
+
+
+def test_division_names_are_escaped_in_the_page(built_db, tmp_path):
+    shutil.copy(built_db, tmp_path / "puma_dtc.db")
+    conn = sqlite3.connect(tmp_path / "puma_dtc.db")
+    for table in ("gold_inventory_health", "gold_markdown_risk", "gold_sell_through", "gold_reorder_signals"):
+        conn.execute(f"UPDATE {table} SET puma_division = '<script>alert(1)</script>' WHERE puma_division = 'Swim'")
+    conn.commit()
+    conn.close()
+    spec = importlib.util.spec_from_file_location("dashboard_app_escape", APP_PATH)
+    module = importlib.util.module_from_spec(spec)
+    with working_dir(tmp_path):
+        spec.loader.exec_module(module)
+        page = TestClient(module.app).get("/").text
+    assert "<script>alert(1)</script>" not in page
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+    assert r"\u003cscript>alert(1)\u003c/script>" in page  # and escaped inside the JSON block for the charts

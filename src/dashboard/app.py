@@ -11,7 +11,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agent.query_agent import ask
 
-app = FastAPI(title="DTC Inventory Intelligence")
+app = FastAPI(title="PUMA DTC Inventory Intelligence")
 
 DB_PATH = "puma_dtc.db"
 
@@ -29,16 +29,21 @@ def get_data(query):
     conn.close()
     return df
 
+
 def freshness():
     """What the header shows instead of a clock: the newest sale in the data and the day the pipeline last ran.
     The page itself is rendered on every visit, so 'now' would say nothing about the data."""
     try:
-        newest = get_data("SELECT MAX(t_dat) AS d FROM silver_transactions WHERE quality_flag = 'clean'")["d"].iloc[0]
+        try:  # the demo snapshot has this tiny table instead of Silver
+            newest = get_data("SELECT MAX(last_sale) AS d FROM data_period")["d"].iloc[0]
+        except Exception:
+            newest = get_data("SELECT MAX(t_dat) AS d FROM silver_transactions WHERE quality_flag = 'clean'")["d"].iloc[0]
         ran = get_data("SELECT MAX(generated_at) AS r FROM gold_inventory_health")["r"].iloc[0]
         return (f"Sales data to {pd.Timestamp(newest).strftime('%d %b %Y')}"
                 f" &middot; Pipeline run {pd.Timestamp(ran).strftime('%d %b %Y')}")
     except Exception:
         return "Sales data period unknown"
+
 
 def esc(value):
     return html_lib.escape(str(value))
@@ -540,7 +545,7 @@ async def dashboard():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light">
-    <title>DTC Inventory Intelligence</title>
+    <title>PUMA DTC Inventory Intelligence</title>
     <link rel="icon" href="data:,">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -552,7 +557,7 @@ async def dashboard():
 
 <header class="hero">
     <div class="topbar">
-        <div class="brandline">DTC Inventory Intelligence</div>
+        <div class="brandline">PUMA DTC Inventory Intelligence</div>
         <div class="updated">{updated}</div>
     </div>
     <div class="hero-body">
